@@ -32,7 +32,7 @@ Alternatively, users can process their own sequencing data but must ensure that 
 | `InheritanceFilter.Rmd`             | Inheritance Pattern (AR, AD) Filtering |
 
 Each script processes variant call files and outputs prioritized candidate variants for interpretation.
-> **Note:** The file names given above do not include Build (hg37/38) or date/version. Only InheritanceFilter.Rmd can be used on all versions of files.
+> **Note:** The file names given above do not include Build ([hg37](https://github.com/vincentlab-la/irdga/tree/main/hg37)/[hg38](https://github.com/vincentlab-la/irdga/tree/main/hg38)) or date/version. Only [InheritanceFilter.Rmd](https://github.com/vincentlab-la/irdga/blob/main/Inheritance%20Filtering%20Script.Rmd) can be used on all versions of files.
 
 ## 📂 File Inputs  
 
@@ -132,7 +132,7 @@ This pipeline is designed for research use in IRD gene discovery and diagnostic 
 2. Edit either the `.Rmd` scripts to match your data paths and gene panels, or vice versa.
 3. Run in RStudio.
 4. Review output files, merge SNV and SV results, and prioritize candidates.
-> ⚠ **Confused?** Feel free to look at the How to Use Folder for a walkthrough. 
+> ⚠ **Confused?** Feel free to look at the [How to Use Folder](https://github.com/vincentlab-la/irdga/blob/main/Sample%20Files%20and%20Walkthrough/How%20To%20Use.md) for a walkthrough. 
 
 
 ## 🤝 Acknowledgements
