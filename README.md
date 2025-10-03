@@ -1,4 +1,4 @@
-#Inherited Retinal Dystrophy Genome Analysis (IRDGA) Pipleline
+## Inherited Retinal Dystrophy Genome Analysis (IRDGA) Pipleline
 This repository accompanies the work **“A Comprehensive Phenotype Driven Genome Analysis Pipeline for Novel Variant and Gene Discovery”**(2025).
 
 ## 🧬 Project Overview
