@@ -1,0 +1,728 @@
+---
+title: "Inheritance Filtering"
+author: "Layla Ahmed"
+date: "2025-05-20"
+output: html_document
+---
+
+
+```{r}
+
+#You are currently using the Inheritance Filtering script; this script is designed to utilize gene names for matching variants. Note that you will need a column called "gene_symbol" for this; if you do not have this column name, edit your data before running this.
+#This script can also be used for identifying genes shared between affected family members, provided the user analyses the resulting data for specific variant matches as shared genes are saved in their entire.
+count_removed_and_remaining_rows <<- function(original_data, modified_data) {
+  removed_rows <- nrow(original_data) - nrow(modified_data)
+  remaining_rows <- nrow(modified_data)
+#Apparently dplyr and datatable have last as a function so i just changed it to lastlast (now everybody go chop breakfast)
+lastlast <- function(x){x[[length(x)]]}
+  
+  cat(paste("This action removed", removed_rows, "rows.\n"))
+  cat(paste("There are currently", remaining_rows, "rows remaining.\n"))
+}
+all_genes_saved <- data.frame(
+  Comparison = character(),
+  gene_symbol = character(),
+  stringsAsFactors = FALSE
+)
+
+
+setup <- function(){
+  
+ messages <- c(
+  "You are currently using the Inheritance Filtering script.",
+  "This script is designed to utilize gene names for matching variants.",
+  "Note that you will need a column called gene_symbol for this code to work; if you do not have this column name, edit your data before running this."
+)
+
+# Loop through and print each with a pause
+for (msg in messages) {
+  cat(msg, "\n")
+  Sys.sleep(2)  # Adjust seconds to your preference
+}
+  install_and_load <- function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    install.packages(pkg)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
+
+# List of required packages
+packages <- c(
+  "data.table",
+  "conflicted",
+  "tidyverse",
+  "writexl",
+  "dplyr",
+  "readr",
+  "readxl",
+  "openxlsx"
+)
+
+# Loop over each package
+lapply(packages, install_and_load)
+
+stats_data <<- data.frame()
+}
+
+Data_Input <- function() {
+  full_sheet_list <- list()
+sheet_names <- list()
+Dnumber <<- as.character(readline(prompt ="Please write the Sample Number:"))
+
+#function to rerun the spreadsheet choosing bit if necessary
+reloadfun <- function() {
+  reloadline <- cat("Do you want to add more files and sheets?\n[1]Yes\n[2]No\n")
+  reload <- readline(prompt = reloadline)
+  reload <- as.numeric(reload)
+  
+  if (reload == 1){
+    # Print the file list created and corresponding numbers
+    cat("OK, adding some more...\n")
+    spreadsheetload()
+  }
+  
+  else if (reload == 2){
+    cat("Okay, no files will be added.\n")
+  }
+  else { 
+    cat("Please pick from the given numbers.")
+    reloadfun()
+  }
+}
+
+spreadsheetload <- function(){
+  cat("Please select a file to begin.")
+  excelchosen <- file.choose()
+  excelchosen_ext <-  tools::file_ext(excelchosen)
+  if(excelchosen_ext == "csv"){
+    excelname <- readline(prompt ="Please write the file name -i.e the variant file type-:")
+    excelname <- as.character(excelname)
+    excelname <- gsub(" ", "", excelname)
+    excelchosen <- read.csv(excelchosen, stringsAsFactors = FALSE)
+    #split multiple genes in one row into many rows
+    excelchosen <- excelchosen %>%
+      separate_rows(gene_symbol, sep = ",")
+    full_sheet_list[[length(full_sheet_list) + 1]] <<- excelchosen
+    invisible(assign(excelname, excelchosen, envir = .GlobalEnv))
+    sheet_names[[length(sheet_names) + 1]] <- as.character(excelname)
+    invisible(assign("sheet_names", sheet_names, envir = .GlobalEnv))
+    invisible(assign("full_sheet_list", full_sheet_list, envir = .GlobalEnv))
+  } else if(excelchosen_ext == "tsv"){
+    excelname <- readline(prompt ="Please write the file name -i.e the variant file type-:")
+    excelname <- as.character(excelname)
+    excelname <- gsub(" ", "", excelname)
+    excelchosen <- read.delim(excelchosen, sep = "\t", strip.white = TRUE, stringsAsFactors = FALSE)
+    excelchosen <- excelchosen %>%
+      separate_rows(gene_symbol, sep = ",")
+    full_sheet_list[[length(full_sheet_list) + 1]] <<- excelchosen
+    invisible(assign(excelname, excelchosen, envir = .GlobalEnv))
+    sheet_names[[length(sheet_names) + 1]] <<- as.character(excelname)
+    invisible(assign("sheet_names", sheet_names, envir = .GlobalEnv))
+    invisible(assign("full_sheet_list", full_sheet_list, envir = .GlobalEnv))
+  } else if(excelchosen_ext == "xlsx" | excelchosen_ext == "xls"){
+    excelname <- readline(prompt ="Please write the file name -i.e the variant file type-:")
+    # List out all the sheels in given Excel file
+    sheetlist <- excel_sheets(excelchosen)
+    # Print the sheet list and corresponding numbers
+    cat("Choose the sheet you want to load in; each number corresponds with the adjacent sheet:\n")
+    for (i in 1:length(sheetlist)) {
+      cat(i, " - ", sheetlist[i], "\n")
+    }
+    KeepMe <- list()
+    # Start an input loop
+    while (TRUE) {
+      input <- readline("Enter a number (or 'q' to quit): ")
+      # Check if the input is 'q' (to quit)
+      if (tolower(input) == "q") {
+        break  # Exit the loop if 'q' is entered
+      }
+      # Convert the input to numeric
+      num <- as.numeric(input)
+      # Check if the input is a valid number and within the valid range
+      if (!is.na(num) && num >= 1 && num <= length(sheetlist)) {
+        KeepMe <- c(KeepMe, as.character(sheetlist[num]))
+        KeepMeChara <- toString(KeepMe)
+      } else {
+        cat("Invalid input. Please enter a valid number between 1 and ", length(sheetlist), ".\n")
+      }
+    }
+    # Print the matched values
+    cat("These are the sheets we're keeping:", unlist(KeepMe), "\n")
+    #then filter
+    for (i in 1:length(KeepMe)) {
+      sheet_name <<- as.character(KeepMe[i])
+      data <- read_xlsx(excelchosen, sheet = sheet_name)
+      full_sheet_list[[length(full_sheet_list) + 1]] <<- data
+      if (nchar(excelname) == 0){
+         excelname <- readline(prompt ="Please write the file name -i.e the variant file type-:")
+      }
+      excel_and_sheet_name <<- paste0(excelname)
+      excel_and_sheet_name <<- gsub(" ", "", excel_and_sheet_name)
+      invisible(assign(excel_and_sheet_name, data, envir = .GlobalEnv))
+      sheet_names[[length(sheet_names) + 1]] <<- as.character(excel_and_sheet_name)
+      invisible(assign("sheet_names", sheet_names, envir = .GlobalEnv))
+      invisible(assign("full_sheet_list", full_sheet_list, envir = .GlobalEnv))
+    }
+    
+  }
+    else {
+      cat("Please pick a file in tabular format! Circling back...\n")
+      spreadsheetload()
+    }
+  reloadfun()
+}
+
+
+spreadsheetload()
+  
+}
+
+
+Recessive_Inheritance_Filtering <- function(){
+  # Helper function to safely bind rows with different column structures
+
+safe_rbind <- function(df1, df2) {
+  
+  if(nrow(df1) == 0) return(df2)
+  if(nrow(df2) == 0) return(df1)
+  
+  # Get all unique column names from both dataframes
+  all_cols <- unique(c(names(df1), names(df2)))
+  
+  # Add missing columns to df1 with NA values
+  missing_in_df1 <- base::setdiff(all_cols, names(df1))
+  if(length(missing_in_df1) > 0) {
+    df1[missing_in_df1] <- NA
+  }
+  
+  # Add missing columns to df2 with NA values
+  missing_in_df2 <- base::setdiff(all_cols, names(df2))
+  if(length(missing_in_df2) > 0) {
+    df2[missing_in_df2] <- NA
+  }
+  
+  # Reorder columns to match
+  df1 <- df1[all_cols]
+  df2 <- df2[all_cols]
+  
+  # Now rbind will work
+  return(rbind(df1, df2))
+}
+
+
+# Function to add statistics to global stats_data
+# Modified add_to_stats function to also include retained genes
+add_to_stats <- function(sheet_name, sheet_type, total_variants, biallelic_count, genes_involved, notes = "", retained_data = NULL) {
+  
+  # Gene count before filtering
+  gene_count_total <- length(unique(genes_involved))
+  
+  # Gene count after filtering (if retained_data is provided)
+  gene_count_retained <- if (!is.null(retained_data) && "gene_symbol" %in% colnames(retained_data)) {
+    length(unique(retained_data$gene_symbol))
+  } else {
+    NA
+  }
+  
+  genes_string <- paste(unique(genes_involved), collapse = ", ")
+  
+  new_row <- data.frame(
+    Sheet_Name = sheet_name,
+    Sheet_Type = sheet_type,
+    Total_Variants = total_variants,
+    Biallelic_Recessive_Count = biallelic_count,
+    Genes_Involved = genes_string,
+    Gene_Count_Total = gene_count_total,
+    Gene_Count_Retained = gene_count_retained,  # NEW column
+    Notes = notes,
+    stringsAsFactors = FALSE
+  )
+  
+  stats_data <<- rbind(stats_data, new_row)
+}
+
+
+# Enhanced function to identify recessive candidates within a single sheet
+find_recessive_candidates <- function(wb) {
+  # Process each loaded sheet
+  for (i in 1:length(full_sheet_list)) {
+    current_sheet <- full_sheet_list[[i]]
+    current_name <- sheet_names[[i]]
+     full_sheet_list[[i]] <<- full_sheet_list[[i]] %>%    
+       mutate_all(as.character)
+    cat("Processing", current_name, "for recessive candidates...\n")
+    
+    # Initialize empty dataframe for recessive candidates
+    recessive_candidates <- data.frame()
+    
+    # Track genes for statistics
+    all_recessive_genes <- c()
+    
+    # 1. Check for duplicate genes
+    if("gene_symbol" %in% colnames(current_sheet)) {
+      gene_counts <- table(current_sheet$gene_symbol)
+      duplicate_genes <- names(gene_counts[gene_counts > 1])
+      
+      if(length(duplicate_genes) > 0) {
+        cat("Found", length(duplicate_genes), "genes with multiple variants in", current_name, "\n")
+        duplicate_rows <- current_sheet[current_sheet$gene_symbol %in% duplicate_genes, ]
+        duplicate_rows$recessive_reason <- "duplicate_gene"
+        recessive_candidates <- safe_rbind(recessive_candidates, duplicate_rows)
+        all_recessive_genes <- c(all_recessive_genes, duplicate_genes)
+      }
+    }
+    
+    # 2. Check for homozygous variants (hom-alt in Zygosity)
+    if("Zygosity" %in% colnames(current_sheet)) {
+      homozygous_rows <- current_sheet[!is.na(current_sheet$Zygosity) & current_sheet$Zygosity == "hom-alt", ]
+      if(nrow(homozygous_rows) > 0) {
+        cat("Found", nrow(homozygous_rows), "homozygous variants (hom-alt) in", current_name, "\n")
+        # Only add if not already included (avoid duplicates)
+        if("gene_symbol" %in% colnames(current_sheet)) {
+          homozygous_rows <- homozygous_rows[!homozygous_rows$gene_symbol %in% recessive_candidates$gene_symbol, ]
+        }
+        if(nrow(homozygous_rows) > 0) {
+          homozygous_rows$recessive_reason <- "hom_alt_zygosity"
+          recessive_candidates <- safe_rbind(recessive_candidates, homozygous_rows)
+          all_recessive_genes <- c(all_recessive_genes, homozygous_rows$gene_symbol)
+        }
+      }
+    }
+    
+    # 3. Check for homozygous variants (1/1 or 1|1 in GT_PreNorm) [SV]
+    if("GT_PreNorm" %in% colnames(current_sheet)&& !"Zygosity" %in% colnames(current_sheet)) {
+      homozygous_gt_rows <- current_sheet[!is.na(current_sheet$GT_PreNorm) & 
+                                         current_sheet$GT_PreNorm %in% c("1/1", "1|1"), ]
+      if(nrow(homozygous_gt_rows) > 0) {
+        cat("Found", nrow(homozygous_gt_rows), "homozygous variants (1/1 or 1|1) in", current_name, "\n")
+        # Only add if not already included (avoid duplicates)
+        if("gene_symbol" %in% colnames(current_sheet)) {
+          homozygous_gt_rows <- homozygous_gt_rows[!homozygous_gt_rows$gene_symbol %in% recessive_candidates$gene_symbol, ]
+        }
+        if(nrow(homozygous_gt_rows) > 0) {
+          homozygous_gt_rows$recessive_reason <- "homozygous_GT"
+          recessive_candidates <- safe_rbind(recessive_candidates, homozygous_gt_rows)
+          all_recessive_genes <- c(all_recessive_genes, homozygous_gt_rows$gene_symbol)
+        }
+      }
+    }
+    if ("VariantScore" %in% colnames(recessive_candidates) && length(all_recessive_genes) > 0) {
+  cat("Calculating gene-level scores for recessive genes in", current_name, "...\n")
+  
+  recessive_candidates$VariantScore <- as.numeric(recessive_candidates$VariantScore)
+  recessive_candidates$VariantScore[is.na(recessive_candidates$VariantScore)] <- 0
+  
+  library(dplyr)
+  
+  # Calculate per-gene aggregate scores
+  gene_scores <- recessive_candidates %>%
+    group_by(gene_symbol) %>%
+    summarise(
+      GeneScore_AvgAll = mean(VariantScore, na.rm = TRUE),
+      GeneScore_AvgTop2 = mean(sort(VariantScore, decreasing = TRUE)[1:min(2, n())], na.rm = TRUE)
+    )
+  
+  # Merge back to each row by gene_symbol
+  recessive_candidates <- recessive_candidates %>%
+    left_join(gene_scores, by = "gene_symbol")
+  
+  cat("Gene scores attached beside each variant row for recessive genes in", current_name, "\n")
+}
+    
+    
+    # Add statistics for original sheet
+    original_genes <- if("gene_symbol" %in% colnames(current_sheet)) current_sheet$gene_symbol else character(0)
+    add_to_stats(current_name, "Original", nrow(current_sheet), 0, original_genes, "Original input data")
+    
+    # If recessive candidates found, add to workbook
+    if(nrow(recessive_candidates) > 0) {
+      recessive_sheet_name <- paste0(current_name, "_recessive")
+      
+      # Truncate sheet name if too long for Excel (31 char limit)
+      if(nchar(recessive_sheet_name) > 31) {
+        recessive_sheet_name <- substr(recessive_sheet_name, 1, 31)
+      }
+      
+      # Add worksheet to existing workbook
+      addWorksheet(wb, recessive_sheet_name)
+      writeData(wb, sheet = recessive_sheet_name, x = recessive_candidates)
+      
+      # Add statistics for recessive sheet
+      add_to_stats(recessive_sheet_name, "Recessive", nrow(recessive_candidates), 
+                   nrow(recessive_candidates), all_recessive_genes, 
+                   "Biallelic/recessive candidates", retained_data = recessive_candidates)
+      
+      cat("Total recessive candidates found in", current_name, ":", nrow(recessive_candidates), "\n")
+    } else {
+      cat("No recessive candidates found in", current_name, "\n")
+      # Still add to stats with zero counts
+      add_to_stats(paste0(current_name, "_recessive"), "Recessive", 0, 0, character(0), 0,
+                   "No recessive candidates found")
+    }
+  }
+}
+
+# Enhanced function to find matches between sheets with full row data
+find_enhanced_matches <- function(wb) {
+  if (length(full_sheet_list) > 1) {
+    
+    find_intersection <- function(sheet_i, sheet_j) {
+      if ("gene_symbol" %in% colnames(sheet_i) && "gene_symbol" %in% colnames(sheet_j)) {
+        return(base::intersect(sheet_i$gene_symbol, sheet_j$gene_symbol))
+      } else {
+        return(character(0))
+      }
+    } 
+    
+    # Perform intersections for all combinations of data frames
+    for (i in 1:(length(full_sheet_list) - 1)) {
+      for (j in (i + 1):length(full_sheet_list)) {
+        
+        cat("Comparing sheet", sheet_names[[i]], "and", sheet_names[[j]], ".\n")
+        matches <- find_intersection(full_sheet_list[[i]], full_sheet_list[[j]])
+        
+        if (length(matches) == 0) {
+          cat("There are no matches between", sheet_names[[i]], "and", sheet_names[[j]], ".\n")
+          comparison_name <- paste0(sheet_names[[i]], "_vs_", sheet_names[[j]])
+          if (nchar(comparison_name) > 31) {
+            comparison_name <- substr(comparison_name, 1, 31)
+          }
+          add_to_stats(comparison_name, "Comparison", 0, 0, character(0), 
+                       "No overlapping genes found")
+          next
+        }
+        
+        cat("There are", length(matches), "gene matches between", sheet_names[[i]], "and", sheet_names[[j]], ".\n")
+        
+        # Get the matching rows
+        sheet_i_matches <- full_sheet_list[[i]][full_sheet_list[[i]]$gene_symbol %in% matches, ]
+        sheet_j_matches <- full_sheet_list[[j]][full_sheet_list[[j]]$gene_symbol %in% matches, ]
+        
+        sheet_i_matches$SourceSheet <- sheet_names[[i]]
+        sheet_j_matches$SourceSheet <- sheet_names[[j]]
+        
+        # Ensure columns exist for grouping
+        if ("CHROM" %in% colnames(sheet_i_matches) && "SV_Start" %in% colnames(sheet_i_matches) && "SV_Stop" %in% colnames(sheet_i_matches)) {
+          
+          sheet_i_matches <<- sheet_i_matches %>%
+            group_by(CHROM, SV_Start, SV_Stop) %>%
+            summarise(
+              gene_symbol = paste(unique(gene_symbol), collapse = ","),
+              across(everything(), ~ dplyr::first(.)),
+              .groups = "drop"
+            )
+        }
+        
+         if ("CHROM" %in% colnames(sheet_j_matches) && "SV_Start" %in% colnames(sheet_j_matches) && "SV_Stop" %in% colnames(sheet_j_matches)) {
+          sheet_j_matches <<- sheet_j_matches %>%
+            group_by(CHROM, SV_Start, SV_Stop) %>%
+            summarise(
+              gene_symbol = paste(unique(gene_symbol), collapse = ","),
+              across(everything(), ~ dplyr::first(.)),
+              .groups = "drop"
+            )
+        }
+        
+        # Workbook sheet names
+        comparison_name <- paste0(sheet_names[[i]], "_vs_", sheet_names[[j]])
+        if (nchar(comparison_name) > 31) comparison_name <- substr(comparison_name, 1, 31)
+        
+        genes_sheet_name <- paste0("Genes_", comparison_name)
+        if (nchar(genes_sheet_name) > 31) genes_sheet_name <- substr(genes_sheet_name, 1, 31)
+        
+        combined_sheet_name_i <- paste0(sheet_names[[i]], "_", comparison_name)
+        if (nchar(combined_sheet_name_i) > 31) combined_sheet_name_i <- substr(combined_sheet_name_i, 1, 31)
+        
+        combined_sheet_name_j <- paste0(sheet_names[[j]], "_", comparison_name)
+        if (nchar(combined_sheet_name_j) > 31) combined_sheet_name_j <- substr(combined_sheet_name_j, 1, 31)
+        
+        # Write gene matches sheet
+        gene_symbol_Data <- data.frame(
+          Comparison = comparison_name,
+          gene_symbol = matches,
+          stringsAsFactors = FALSE
+          )
+        
+        addWorksheet(wb, genes_sheet_name)
+        writeData(wb, sheet = genes_sheet_name, x = data.frame(gene_symbol = matches))
+        all_genes_saved <<- rbind(all_genes_saved, gene_symbol_Data)
+  
+        # Write matched sheets
+        addWorksheet(wb, combined_sheet_name_i)
+        writeData(wb, combined_sheet_name_i, sheet_i_matches)
+        
+        addWorksheet(wb, combined_sheet_name_j)
+        writeData(wb, combined_sheet_name_j, sheet_j_matches)
+        
+        # Add stats
+        combined_data <- safe_rbind(sheet_i_matches, sheet_j_matches)
+        add_to_stats(comparison_name, "Comparison", nrow(combined_data), 
+                     nrow(combined_data), matches, 
+                     paste0("Overlap between ", sheet_names[[i]], " and ", sheet_names[[j]]), 
+                     retained_data = combined_data)
+      }
+    }
+    
+  } else if (length(full_sheet_list) == 1) {
+    cat("No other sheet to compare!\n")
+  }
+}
+
+
+# Main function to run both analyses and create single workbook
+analyze_variant_files <- function() {
+  # Create single workbook
+  wb <- createWorkbook()
+  
+  # Step 1: Find recessive candidates within each sheet
+  cat("Step 1: Finding recessive candidates within each sheet...\n")
+  find_recessive_candidates(wb)
+  
+  # Step 2: Find matches between sheets
+  cat("\nStep 2: Finding matches between sheets...\n")
+  find_enhanced_matches(wb)
+  
+  # Step 3: Add statistics sheet
+  cat("\nStep 3: Creating statistics summary...\n")
+  addWorksheet(wb, "Analysis_Statistics")
+  writeData(wb, sheet = "Analysis_Statistics", x = stats_data)
+  all_genes_saved <- unique(rbind(all_genes_saved))
+  # Create summary statistics
+  summary_stats <- data.frame(
+  Metric = c(
+    "Total Original Sheets",
+    "Total Recessive Sheets Created",
+    "Total Comparison Sheets Created",
+    "Total Unique Genes Analyzed",
+    "Total Unique Genes Retained",
+    "Total Biallelic/Recessive Variants Found"
+  ),
+  Value = c(
+    sum(stats_data$Sheet_Type == "Original"),
+    sum(stats_data$Sheet_Type == "Recessive" & stats_data$Biallelic_Recessive_Count > 0),
+    sum(stats_data$Sheet_Type == "Comparison" & stats_data$Biallelic_Recessive_Count > 0),
+    length(unique(unlist(strsplit(paste(stats_data$Genes_Involved, collapse = ", "), ", ")))), 
+    nrow(all_genes_saved),
+    sum(stats_data$Biallelic_Recessive_Count)
+  ),
+  stringsAsFactors = FALSE
+)
+  
+  addWorksheet(wb, "Summary_Statistics")
+  writeData(wb, sheet = "Summary_Statistics", x = summary_stats)
+  
+  if (nrow(all_genes_saved) > 0) {
+  all_genes_saved <<- unique(rbind(all_genes_saved))
+  addWorksheet(wb, "All_Unique_Genes")
+  writeData(wb, sheet = "All_Unique_Genes", x = all_genes_saved)
+  }
+  # Reorder sheets so Summary, Analysis, and Genes are first
+#sheet_order <- c(
+#  "Summary_Statistics", 
+ # "Analysis_Statistics", 
+ # "All_Unique_Genes", 
+#  names(wb)[!names(wb) %in% c("Summary_Statistics", "Analysis_Statistics", "All_Unique_Genes")]
+#)
+
+# Apply the order
+#wb$worksheets <- wb$worksheets[match(sheet_order, names(wb))]
+#names(wb) <- sheet_order
+
+  
+  # Save the single workbook
+  final_file <- paste0(Dnumber, "_Inheritance_Filter_Recessive.xlsx")
+  if (file.exists(final_file)) {
+    counter <- 1   
+    dup_file <- paste0(Dnumber, "_Inheritance_Filter_Recessive_", counter, ".xlsx")      
+    while (file.exists(dup_file)) {     
+      counter <- counter + 1     
+      dup_file <- paste0(Dnumber, "_Inheritance_Filter_Recessive_", counter, ".xlsx")   
+    }      
+    saveWorkbook(wb, file = dup_file)   
+    cat(paste0("File saved as '", dup_file, "'.\n"))
+  } else {   
+    saveWorkbook(wb, file = final_file)   
+    cat(final_file, "saved successfully!\n")
+  }
+  
+  # Final report
+  cat("\nAnalysis complete!\n")
+  cat("All results saved in a single Excel file with multiple sheets:\n")
+  cat("- Analysis_Statistics: Detailed statistics for each sheet\n")
+  cat("- Summary_Statistics: Overall analysis summary\n")
+  cat("- Individual recessive candidate sheets\n")
+  cat("- Gene overlap comparison sheets\n")
+  
+  return(final_file)
+}
+
+  analyze_variant_files()
+  
+}
+Dominant_Filtering_Export <- function() {
+  if (length(sheet_names) == 0 || length(full_sheet_list) == 0) {
+    cat("No sheets have been loaded. Please run spreadsheetload() first.\n")
+    return(NULL)
+  }
+
+  cat("Here are the loaded sheets:\n")
+   for (i in 1:length(sheet_names)) {
+      cat(i, " - ", sheet_names[[i]], "\n")
+    }
+  snv_choice <- readline(prompt = "Select the SNV file by number, or type '0' if none: ")
+  snv_choice <- as.numeric(snv_choice)
+
+  if (!is.na(snv_choice) && snv_choice > 0 && snv_choice <= length(sheet_names)) {
+    snv_data <- full_sheet_list[[snv_choice]]
+
+    if (!"A1000g_freq_max" %in% colnames(snv_data) | !"freq_max" %in% colnames(snv_data)) {
+      cat("The selected file does not contain known population frequency columns.\n")
+    } else {
+      # Filter SNV data for pop_freq < 0.0003
+      filtered_snv <- snv_data[snv_data$A1000g_freq_max <= 0.0003 & snv_data$freq_max <= 0.0003,] 
+      full_sheet_list[[snv_choice]] <- filtered_snv
+      cat("SNV file filtered for allele frequency (1000 Genomes & gnomAD <= 0.003%)\n")
+       count_removed_and_remaining_rows(snv_data, filtered_snv)
+    }
+  } else {
+    cat("No SNV file selected or invalid input.\n")
+  }
+
+  # Write all sheets to a single Excel file
+  wb <- createWorkbook()
+  for (i in seq_along(sheet_names)) {
+    addWorksheet(wb, sheet_names[[i]])
+    writeData(wb, sheet_names[[i]], full_sheet_list[[i]])
+  }
+  
+  stats_data <- data.frame(
+    Sheet_Name = character(),
+    Variant_Count = numeric(),
+    Unique_Gene_Count = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  for (i in seq_along(sheet_names)) {
+    sheet_data <- full_sheet_list[[i]]
+    sheet_name <- sheet_names[[i]]
+
+    gene_count <- if ("gene_symbol" %in% colnames(sheet_data)) {
+      length(unique(sheet_data$gene_symbol))
+    } else {
+      NA
+    }
+
+    stats_data <- rbind(stats_data, data.frame(
+      Sheet_Name = sheet_name,
+      Variant_Count = nrow(sheet_data),
+      Unique_Gene_Count = gene_count,
+      stringsAsFactors = FALSE
+    ))
+    
+    if (sheet_name %in% names(wb)) {
+       cat(sheet_name, " exists already!")
+       new_sheet_name <- readline(prompt = "Please enter a new sheet name: ")
+       addWorksheet(wb, new_sheet_name)
+       cat(new_sheet_name, "has been added to workbook.\n")
+       writeData(wb, new_sheet_name, sheet_data)
+    } else {
+    addWorksheet(wb, sheet_name)
+    writeData(wb, sheet_name, sheet_data)
+    }
+
+  }
+
+  # Create summary statistics sheet
+  summary_stats <- data.frame(
+    Metric = c(
+      "Total Sheets Processed",
+      "Total Variants Across All Sheets",
+      "Total Unique Genes Across All Sheets"
+    ),
+    Value = c(
+      nrow(stats_data),
+      sum(stats_data$Variant_Count, na.rm = TRUE),
+      if ("Unique_Gene_Count" %in% colnames(stats_data)) {
+        length(unique(unlist(
+          lapply(full_sheet_list, function(df) {
+            if ("gene_symbol" %in% colnames(df)) {
+              df$gene_symbol
+            } else {
+              NULL
+            }
+          })
+        )))
+      } else {
+        NA
+      }
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  addWorksheet(wb, "Summary_Statistics")
+  writeData(wb, "Summary_Statistics", summary_stats, startRow = nrow(stats_data) + 3)
+
+
+ final_file <- paste0(Dnumber, "_Inheritance_Filter_Dominant.xlsx")
+  if (file.exists(final_file)) {
+    counter <- 1   
+    dup_file <- paste0(Dnumber, "_Inheritance_Filter_Dominant_", counter, ".xlsx")      
+    while (file.exists(dup_file)) {     
+      counter <- counter + 1     
+      dup_file <- paste0(Dnumber, "_Inheritance_Filter_Dominant_", counter, ".xlsx")   
+    }      
+    saveWorkbook(wb, file = dup_file)   
+    cat(paste0("File saved as '", dup_file, "'.\n"))
+  } else {   
+    saveWorkbook(wb, file = final_file)   
+    cat(final_file, "saved successfully!\n")
+  }
+}
+
+Dominant_Inheritance_Filtering <- function() {
+  count_removed_and_remaining_rows <- function(original_data, modified_data) {
+  removed_rows <- nrow(original_data) - nrow(modified_data)
+  remaining_rows <- nrow(modified_data)
+#Apparently dplyr and datatable have last as a function so i just changed it to lastlast (now everybody go chop breakfast)
+lastlast <- function(x){x[[length(x)]]}
+  
+  cat(paste("This action removed", removed_rows, "rows.\n"))
+  cat(paste("There are currently", remaining_rows, "rows remaining.\n"))
+  }
+
+  Dominant_Filtering_Export()
+}
+
+
+Inheritance_Type <- function(){
+  cat("Choose inheritance mode:\n")
+cat("1: Recessive\n")
+cat("2: Dominant\n")
+
+choice <- readline(prompt = "Enter 1 or 2: ")
+
+# Keep prompting until valid choice
+while (!(choice %in% c("1", "2"))) {
+  cat("Invalid choice. Please enter 1 or 2.\n")
+  choice <- readline(prompt = "Enter 1 or 2: ")
+}
+
+# Run the appropriate function
+if (choice == "1") {
+  Recessive_Inheritance_Filtering()
+} else {
+  Dominant_Inheritance_Filtering()
+}
+  
+}
+
+mainscript <- function(){
+  setup()
+  Data_Input()
+  Inheritance_Type()
+}
+
+mainscript()
+```

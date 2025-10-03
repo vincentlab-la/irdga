@@ -1,0 +1,976 @@
+---
+title: "PGA_SV_hg38_07.25 - Panel-Gene SV analysis for hg38 builds"
+author: "Layla Ahmed"
+date: "2025-06-24"
+output: html_document
+---
+```{r}
+      
+install_and_load <- function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    install.packages(pkg)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
+
+Dprompt <- function() {
+  Dpromt <- paste0("Please write the D number:")
+  Dnumber <- readline(prompt = Dpromt)
+  Dnumber <<- as.character(Dnumber)
+  Dnumber_toremove_colon <<- paste0("^",Dnumber,"\\:")
+  Dnumber_toremove_period <<- paste0("^",Dnumber,"\\.")
+}
+
+install_and_load_bioc <- function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    if (!require("BiocManager", quietly = TRUE)) {
+      install.packages("BiocManager")
+      library(BiocManager)
+    }
+    BiocManager::install(pkg)
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}   
+
+count_removed_and_remaining_rows <<- function(original_data, modified_data) {
+  removed_rows <- nrow(original_data) - nrow(modified_data)
+  remaining_rows <- nrow(modified_data)
+#Apparently dplyr and datatable have last as a function so i just changed it to lastlast (now everybody go chop breakfast)
+lastlast <<- function(x){x[[length(x)]]}
+  
+  cat(paste("This action removed", removed_rows, "rows.\n"))
+  cat(paste("There are currently", remaining_rows, "rows remaining.\n"))
+}
+panel_upload <- function(){
+  cat("Load a panel list.")
+    panel <<- file.choose()
+    panel_ext <- tools::file_ext(panel)
+    # read in 
+    if(panel_ext == "txt"){
+      panel <<- read.table(panel, header=T, colClasses = "character")
+      nrowpanel  <<- nrow(panel)
+      cat("You have loaded a panel list.") } 
+   else {
+    cat("Please a text file! Circling back...\n")
+    panel_upload()
+  }
+  }
+#load in necessary libraries
+setup <- function(){
+  messages <- c(
+  "You are currently using the Structural Variant (SV) filter code specifically for Panel Gene Analysis in hg38.",
+  "If you want to specifically look through the whole genome in your file, please go to WGA_SV_hg38.",
+  "This script was built to filter MANTA & CNVnator files in parallel;",
+  "If you opt to load in your SV files through File -> Import Dataset -> Base (readr), please name your files 'patientdata_MANTA' & 'patientdata_CNV' so the script can recognise them."
+)
+
+# Loop through and print each with a pause
+for (msg in messages) {
+  cat(msg, "\n")
+  Sys.sleep(2)  # Adjust seconds to your preference
+}
+
+  # Helper function for CRAN packages
+
+
+# CRAN packages
+cran_packages <- c(
+  "R.utils",
+  "data.table",
+  "conflicted",
+  "tidyverse",
+  "writexl",
+  "dplyr",
+  "readr",
+  "readxl",
+  "openxlsx"
+)
+
+# Bioconductor packages
+bioc_packages <- c(
+  "AnnotationDbi",
+  "org.Hs.eg.db"
+)
+
+# Install and load CRAN packages
+lapply(cran_packages, install_and_load)
+
+# Install and load Bioconductor packages
+lapply(bioc_packages, install_and_load_bioc)
+
+#For gene information
+ CGDURL <- "https://research.nhgri.nih.gov/CGD/download/xls/CGD.xls.gz"
+  directory <<- getwd()
+  CGDName <- paste0(directory, "/CGD.xls.gz")
+  CGDFile <- paste0(directory,"/CGD.xls")
+  download.file(CGDURL,CGDName)
+  gunzip(CGDName, destname = CGDFile, overwrite = TRUE)
+  CGD <<- read_excel(CGDFile)
+  Dprompt()
+  
+
+panel_upload()
+
+}
+
+file_choice_MANTA <- function(){
+  if ("patientdata_MANTA" %in% ls(envir = .GlobalEnv)) {
+    print ("File named 'patientdata_MANTA' found.")
+  } else {
+    print ("'patientdata_MANTA' is missing, please select a file:")
+    patientfile <<- file.choose()
+    patientfile_ext <<-  tools::file_ext(patientfile)
+    if(patientfile_ext == "csv"){
+      patientdata_MANTA <<- read.csv(patientfile, stringsAsFactors = FALSE)
+    } else if(patientfile_ext == "tsv"){
+      patientdata_MANTA <<- read.delim(patientfile, sep = "\t", strip.white = TRUE, stringsAsFactors = FALSE)
+    } else if(patientfile_ext == "xlsx" | patientfile_ext == "xls"){
+      # List out all the sheels in given Excel file
+      sheetlist <<- excel_sheets(patientfile)
+      # Print the sheet list and corresponding numbers
+      cat("Choose the sheet you want to load in; each number corresponds with the adjacent sheet:\n")
+      for (i in 1:length(sheetlist)) {
+        cat(i, " - ", sheetlist[i], "\n")
+      }
+      input <- readline("Enter a number (or 'q' to quit): ")
+      # Check if the input is 'q' (to quit)
+      if (tolower(input) == "q") {
+        break  # Exit the loop if 'q' is entered
+      }
+      # Convert the input to numeric
+      num <- as.numeric(input)
+      # Check if the input is a valid number and within the valid range
+      if (!is.na(num) && num >= 1 && num <= length(sheetlist)) {
+        KeepMe <<- as.character(sheetlist[num])
+        KeepMeChara <- toString(KeepMe)
+      } 
+      else {
+        cat("Invalid input. Please enter a valid number between 1 and ", length(sheetlist), ".\n")
+      }
+      
+      # Print the matched values
+      cat("This is the sheet we're keeping:", KeepMe, "\n")
+      #then filter
+      sheet_name <<- as.character(KeepMe)
+      patientdata_MANTA <<- read_xlsx(patientfile, sheet = sheet_name)
+    }
+    
+    else {
+      cat("Please pick a file in tabular format! Circling back...\n")
+      file()
+    }
+  }
+
+}
+
+#input the patient file
+patientfile_cmd_MANTA <- function(){
+  #Make sure the columns dont have the sample name inside
+  if (nchar(Dnumber) == 0 | is.na(Dnumber)){
+    print("D Number not found.")
+    Dprompt()
+    patientfile_cmd_MANTA()
+  } else if (nchar(Dnumber) > 0) {
+  names(patientdata_MANTA) <- sub(Dnumber_toremove_colon, "", names(patientdata_MANTA))
+  names(patientdata_MANTA) <- sub(Dnumber_toremove_period, "", names(patientdata_MANTA))
+  dup_cols <- names(patientdata_MANTA)[duplicated(names(patientdata_MANTA))]
+  # Append a suffix to duplicate column names to make them unique
+  for (col in dup_cols) {
+    indices <- which(names(patientdata_MANTA) == col)
+    names(patientdata_MANTA)[indices] <- paste(col, indices, sep = "_")
+  }
+  InitialRow <<- nrow(patientdata_MANTA)
+  InitialText <<- "Initial Number of MANTA Variants"
+  currentdata_MANTA <<- patientdata_MANTA
+  FilterStep_MANTA$Step <<- c(InitialText)
+  FilterStep_MANTA$Count <<- c(InitialRow)
+  }
+}
+
+setupMANTA <- function (){
+  file_choice_MANTA()
+  patientfile_cmd_MANTA()
+}
+
+file_choice_CNV <- function(){
+  if ("patientdata_CNV" %in% ls(envir = .GlobalEnv)) {
+    print ("File named 'patientdata_CNV' found.")
+  } else {
+    print ("'patientdata_CNV' is missing, please select a file:")
+    patientfile <<- file.choose()
+    patientfile_ext <<-  tools::file_ext(patientfile)
+    if(patientfile_ext == "csv"){
+      patientdata_CNV <<- read.csv(patientfile, stringsAsFactors = FALSE)
+    } else if(patientfile_ext == "tsv"){
+      patientdata_CNV <<- read.delim(patientfile, sep = "\t", strip.white = TRUE, stringsAsFactors = FALSE)
+    } else if(patientfile_ext == "xlsx" | patientfile_ext == "xls"){
+      # List out all the sheels in given Excel file
+      sheetlist <<- excel_sheets(patientfile)
+      # Print the sheet list and corresponding numbers
+      cat("Choose the sheet you want to load in; each number corresponds with the adjacent sheet:\n")
+      for (i in 1:length(sheetlist)) {
+        cat(i, " - ", sheetlist[i], "\n")
+      }
+      input <- readline("Enter a number (or 'q' to quit): ")
+      # Check if the input is 'q' (to quit)
+      if (tolower(input) == "q") {
+        break  # Exit the loop if 'q' is entered
+      }
+      # Convert the input to numeric
+      num <- as.numeric(input)
+      # Check if the input is a valid number and within the valid range
+      if (!is.na(num) && num >= 1 && num <= length(sheetlist)) {
+        KeepMe <<- as.character(sheetlist[num])
+        KeepMeChara <- toString(KeepMe)
+      } 
+      else {
+        cat("Invalid input. Please enter a valid number between 1 and ", length(sheetlist), ".\n")
+      }
+      
+      # Print the matched values
+      cat("This is the sheet we're keeping:", KeepMe, "\n")
+      #then filter
+      sheet_name <<- as.character(KeepMe)
+      patientdata_CNV <<- read_xlsx(patientfile, sheet = sheet_name)
+    }
+    
+    else {
+      cat("Please pick a file in tabular format! Circling back...\n")
+      file()
+    }
+  }
+
+}
+
+patientfile_cmd_CNV <- function(){
+  if (nchar(Dnumber) == 0 | is.na(Dnumber)){
+    print("D Number not found.")
+    Dprompt()
+    patientfile_cmd_CNV()
+  } else if (nchar(Dnumber) > 0) {
+  #Make sure the columns dont have the sample name inside
+  names(patientdata_CNV) <- sub(Dnumber_toremove_colon, "", names(patientdata_CNV))
+  names(patientdata_CNV) <- sub(Dnumber_toremove_period, "", names(patientdata_CNV))
+  dup_cols <- names(patientdata_CNV)[duplicated(names(patientdata_CNV))]
+  # Append a suffix to duplicate column names to make them unique
+  for (col in dup_cols) {
+    indices <- which(names(patientdata_CNV) == col)
+    names(patientdata_CNV)[indices] <- paste(col, indices, sep = "_")
+  }
+  InitialRow <<- nrow(patientdata_CNV)
+  IntitialText <<- "Initial Number of CNV Variants"
+  currentdata_CNV <<- patientdata_CNV
+   FilterStep_CNVnator$Step <<- c(IntitialText)
+  FilterStep_CNVnator$Count <<- c(InitialRow)
+  }
+}
+
+
+setupCNVnator <- function (){
+  file_choice_CNV()
+  patientfile_cmd_CNV()
+}
+
+MANTAFilter <- function(){
+  currentdata <<- currentdata_MANTA
+
+  if (("dirtyRegion_pctOvlp" %in% names(currentdata))) {
+      currentdata <<- dplyr::filter(currentdata,dirtyRegion_pctOvlp %in% NA |  dirtyRegion_pctOvlp <=70,)
+      CleanRow <<- nrow(currentdata)
+      CleanText <<- "Dirty Region Overlap >= 70%"
+      currentdata_clean <<- currentdata
+  }
+  else if (("dirtyRegion_percOverlap" %in% names(currentdata))) {
+    currentdata <<- dplyr::filter(currentdata, dirtyRegion_percOverlap %in% NA | dirtyRegion_percOverlap <=70,)  
+    CleanRow <<- nrow(currentdata)
+    CleanText <<- "Dirty Region Overlap >= 70%"
+    currentdata_clean <<- currentdata
+  } else {
+        CleanRow <<- as.character("Not Applicable")
+        CleanText <<- "Dirty Region Overlap >= 70%"
+        currentdata_clean <<- currentdata
+    }
+
+
+  if (("otgMantaPctFreq_90pctRecOvlp" %in% names(currentdata))) {
+  currentdata <<- dplyr::filter(currentdata, otgMantaPctFreq_90pctRecOvlp %in% NA | otgMantaPctFreq_90pctRecOvlp <=1)
+   MANTAogRow <<- nrow(currentdata)
+   MANTAogText <<- "MANTA Database (1000g) Filter <= 1%"
+   currentdata_MANTAog <<-currentdata
+  
+  } else if (("otgMantaPercFreq_90percRecipOverlap" %in% names(currentdata))) {
+      currentdata_MANTAog <<- dplyr::filter(currentdata, otgMantaPercFreq_90percRecipOverlap %in% NA | otgMantaPercFreq_90percRecipOverlap <=1) 
+      MANTAogRow <<-nrow(currentdata)
+      MANTAogText <<- "MANTA Database (1000g) Filter <= 1%"
+      currentdata_MANTAog <<-currentdata
+  } else {
+    MANTAogRow <<- as.character("Not Applicable")
+    MANTAogText <<- "MANTA Database (1000g) Filter <= 1%"
+    currentdata_MANTAog <<-currentdata
+    
+  }
+  
+  if (("svMantaXPctFreq_90pctRecOvlp" %in% names(currentdata))) {
+      currentdata <<- dplyr::filter(currentdata,svMantaXPctFreq_90pctRecOvlp %in% NA |  svMantaXPctFreq_90pctRecOvlp <=1) 
+      MANTARow <<- nrow(currentdata)
+      MANTAText <<- "MANTA Database (Internal) Filter <= 1%"
+      currentdata_MANTA <<-currentdata
+
+  } else if (("svMantaXPercFreq_90percRecipOverlap" %in% names(currentdata))) {
+      currentdata <<- dplyr::filter(currentdata, svMantaXPercFreq_90percRecipOverlap %in% NA | svMantaXPercFreq_90percRecipOverlap <=1) 
+      MANTARow <<- nrow(currentdata)
+    MANTAText <<- "MANTA Database (Internal) Filter <= 1%"
+    currentdata_MANTA <<-currentdata
+  } else {
+    MANTARow <<- as.character("Not Applicable")
+    MANTAText <<- "MANTA Database (Internal) Filter <= 1%"
+    currentdata_MANTA <<-currentdata
+  }
+  
+  if (("otgDellyPctFreq_90pctRecOvlp" %in% names(currentdata))) {
+  currentdata <<- dplyr::filter(currentdata, otgDellyPctFreq_90pctRecOvlp %in% NA | otgDellyPctFreq_90pctRecOvlp <=1) 
+  DellyRow <<- nrow(currentdata)
+  DellyText <<- "Delly Database (1000G) Filter <= 1%"
+  currentdata_Delly <<-currentdata
+  } else if (("otgDellyPercFreq_90percRecipOverlap" %in% names(currentdata))) {
+  currentdata <<- dplyr::filter(currentdata,otgDellyPercFreq_90percRecipOverlap %in% NA | otgDellyPercFreq_90percRecipOverlap <=1) 
+  DellyRow <<- nrow(currentdata)
+  DellyText <<- "Delly Database (1000G) Filter <= 1%"
+  currentdata_Delly <<-currentdata
+  } else {
+  DellyRow <<- as.character("Not Applicable")
+  DellyText <<- "Delly Database (1000G) Filter <= 1%"
+  currentdata_Delly <<-currentdata
+  }
+  
+  
+  if (("all_DgnPctFreq_90pctRecOvlp" %in% names(currentdata))){
+  currentdata <<-   dplyr::filter(currentdata, all_DgnPctFreq_90pctRecOvlp %in% NA | all_DgnPctFreq_90pctRecOvlp <=1)
+  DRGNRow <<- nrow(currentdata)
+  DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+  currentdata_DRGN <<-currentdata
+  } else if (("hsDragenPercFreq_90percRecipOverlap" %in% names(currentdata))){
+  currentdata <<-  dplyr::filter(currentdata, hsDragenPercFreq_90percRecipOverlap %in% NA | hsDragenPercFreq_90percRecipOverlap <=1)
+  DRGNRow <<- nrow(currentdata)
+  DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+  currentdata_DRGN <<-currentdata
+  } else {
+  DRGNRow <<- as.character("Not Applicable")
+  DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+  currentdata_DRGN <<-currentdata
+  }
+  
+  
+  if (("DGVpctFreq_subjs_allStudies_50pctRecOvlp" %in% names(currentdata))){
+  currentdata <<-  dplyr::filter(currentdata, DGVpctFreq_subjs_allStudies_50pctRecOvlp %in% NA | DGVpctFreq_subjs_allStudies_50pctRecOvlp <=1)
+  DGVRow <<- nrow(currentdata)
+ DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+ currentdata_DGV <<-currentdata
+  } else if (("DGVpercFreq_subjects_allStudies_50percRecipOverlap" %in% names(currentdata))){
+  currentdata <<-  dplyr::filter(currentdata,DGVpercFreq_subjects_allStudies_50percRecipOverlap %in% NA | DGVpercFreq_subjects_allStudies_50percRecipOverlap <=1)
+  DGVRow <<- nrow(currentdata)
+ DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+ currentdata_DGV <<-currentdata
+  } else {
+    DGVRow <<- as.character("Not Applicable")
+ DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+ currentdata_DGV <<-currentdata
+    
+  }
+  
+ 
+ 
+  FilterStep_MANTA$Step <<- c(FilterStep_MANTA$Step, CleanText, MANTAText, DellyText, DRGNText, DGVText)
+  FilterStep_MANTA$Count <<- c(FilterStep_MANTA$Count, CleanRow, MANTARow, DellyRow, DRGNRow, DGVRow)
+ 
+  
+}
+
+CNVFilter <- function(){
+ currentdata <<- currentdata_CNV
+
+  if (("dirtyRegion_pctOvlp" %in% names(currentdata))) {
+    currentdata <<- dplyr::filter(currentdata,dirtyRegion_pctOvlp %in% NA |  dirtyRegion_pctOvlp <=70,)
+    CleanRow <<- nrow(currentdata)
+    CleanText <<- "Dirty Region Overlap >= 70%"
+    currentdata_clean <<- currentdata 
+  } else if (("dirtyRegion_percOverlap" %in% names(currentdata))) {
+      currentdata <<- dplyr::filter(currentdata, dirtyRegion_percOverlap %in% NA | dirtyRegion_percOverlap <=70,)
+      CleanRow <<- nrow(currentdata)
+      CleanText <<- "Dirty Region Overlap >= 70%"
+      currentdata_clean <<- currentdata
+  } else { 
+    CleanRow <<- as.numeric (0)
+    CleanText <<- "Dirty Region Overlap >= 70%"
+    currentdata <<- currentdata
+  }
+
+
+  
+  if (("otgErdsPctFreq_50pctRecOvlp" %in% names(currentdata))) {
+    currentdata <<- dplyr::filter(currentdata, otgErdsPctFreq_50pctRecOvlp %in% NA | otgErdsPctFreq_50pctRecOvlp <=1) 
+    currentdata <<- dplyr::filter(currentdata,otgCnvnPctFreq_50pctRecOvlp %in% NA | otgCnvnPctFreq_50pctRecOvlp <=1) 
+    cnvRow <<- nrow(currentdata)
+    cnvText <<- "CNVator & ERDS Database (1000G) Filter <= 1%"
+    currentdata_cnv <<-currentdata
+  } else if (("otgErdsPercFreq_50percRecipOverlap" %in% names(currentdata))) {
+    currentdata <<- dplyr::filter(currentdata, otgErdsPercFreq_50percRecipOverlap %in% NA | otgErdsPercFreq_50percRecipOverlap <=1) 
+    currentdata <<- dplyr::filter(currentdata, otgCnvnPercFreq_50percRecipOverlap %in% NA | otgCnvnPercFreq_50percRecipOverlap <=1) 
+    cnvRow <<- nrow(currentdata)
+    cnvText <<- "CNVator & ERDS Database (1000G) Filter <= 1%"
+    currentdata_cnv <<-currentdata
+  } else {
+    cnvRow <<- as.numeric (0)
+    cnvText <<- "CNVator & ERDS Database (1000G) Filter <= 1%"
+    currentdata <<- currentdata
+  }
+  
+  if (("gnomAD_SF_max50pctRecOvlp" %in% names(currentdata))){
+    currentdata <<-  dplyr::filter(currentdata, gnomAD_SF_max50pctRecOvlp %in% NA | gnomAD_SF_max50pctRecOvlp <=1)
+    gnomADRow <<- nrow(currentdata)
+    gnomADText <<- "gnomAD Filter <= 1%"
+    currentdata_gnomAD <<-currentdata
+  }  else {
+    gnomADRow <<- as.numeric (0)
+    gnomADText <<- "gnomAD Filter <= 1%"
+    currentdata <<- currentdata
+  }
+  
+  if (("all_DgnPctFreq_50pctRecOvlp" %in% names(currentdata))){
+    currentdata <<-   dplyr::filter(currentdata, all_DgnPctFreq_50pctRecOvlp %in% NA | all_DgnPctFreq_50pctRecOvlp <=1)
+    DRGNRow <<- nrow(currentdata)
+    DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+    currentdata_DRGN <<-currentdata
+  } else {
+    DRGNRow <<- as.numeric (0)
+    DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+    currentdata <<- currentdata
+  }
+  
+  if (("hsDragenPercFreq_50percRecipOverlap" %in% names(currentdata))){
+    currentdata <<-  dplyr::filter(currentdata, hsDragenPercFreq_50percRecipOverlap %in% NA | hsDragenPercFreq_50percRecipOverlap <=1)
+    DRGNRow <<- nrow(currentdata)
+    DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+    currentdata_DRGN <<-currentdata
+  } else {
+    DRGNRow <<- as.numeric (0)
+    DRGNText <<- "DRAGEN Database (Internal) Filter <= 1%"
+    currentdata <<- currentdata
+  }
+  
+  if (("DGVpctFreq_subjs_allStudies_50pctRecOvlp" %in% names(currentdata))){
+    currentdata <<-  dplyr::filter(currentdata, DGVpctFreq_subjs_allStudies_50pctRecOvlp %in% NA | DGVpctFreq_subjs_allStudies_50pctRecOvlp <=1)
+    DGVRow <<- nrow(currentdata)
+    DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+    currentdata_DGV <<-currentdata
+  } else if (("DGVpercFreq_subjects_allStudies_50percRecipOverlap" %in% names(currentdata))){
+    currentdata <<-  dplyr::filter(currentdata,DGVpercFreq_subjects_allStudies_50percRecipOverlap %in% NA | DGVpercFreq_subjects_allStudies_50percRecipOverlap <=1)
+    DGVRow <<- nrow(currentdata)
+    DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+    currentdata_DGV <<-currentdata
+  } else {
+    DGVRow <<-  as.numeric (0)
+    DGVText <<- "DVG Database (All Studies) Filter <= 1%"
+     currentdata <<- currentdata
+  }
+
+ 
+FilterStep_CNVnator$Step <<- c(FilterStep_CNVnator$Step, CleanText, cnvText, gnomADText, DRGNText, DGVText)
+FilterStep_CNVnator$Count <<- c(FilterStep_CNVnator$Count,CleanRow, cnvRow, gnomADRow, DRGNRow, DGVRow)
+
+}
+
+
+
+CNV_Filtering <- function(){
+  if ("currentdata_CNV" %in% ls(envir = .GlobalEnv)) {
+   CNVFilter()
+   what_column_chrom()
+  what_column_gene()
+  what_column_start()
+  what_column_stop()
+    currentdata_CNV <<- currentdata
+    currentdata_CNV_Save <<- currentdata
+  } 
+}
+
+
+MANTA_Filtering <- function(){
+  if ("currentdata_MANTA" %in% ls(envir = .GlobalEnv)) {
+   MANTAFilter()
+  what_column_chrom()
+  what_column_gene()
+  what_column_start()
+  what_column_stop()
+  currentdata_MANTA <<- currentdata
+  currentdata_MANTA_Save <<- currentdata
+  } 
+}
+
+what_column_chrom <- function() {
+  if (!("CHROM" %in% colnames (currentdata))) {
+  columns_list <- colnames(currentdata)
+  # Print the column list (of the first sheet you loaded) and corresponding numbers
+  cat("What column is your chromosome column in your data?", "\n")
+  for (j in 1:length(columns_list)) {
+    cat(j, " - ", columns_list[j], "\n")
+  }
+  KeepSheet <- list()
+  input <- readline("Enter a number: ")
+  # Convert the input to numeric
+  num <- as.numeric(input)
+  number <<- num
+  # Check if the input is a valid number and within the valid range
+  if (!is.na(num) && num >= 1 && num <= length(columns_list)) {
+    KeepSheet <- c(KeepSheet, columns_list[num])
+    oldname <<- as.character(columns_list[num])
+    invisible(assign("KeepSheet", KeepSheet, envir = .GlobalEnv))
+    cat("This is the column we're using:", unlist(KeepSheet), "\n")
+    # We're gonna change the chosen column name to "gene_match" so any and all sheets can be used in a simpler
+    # Matching algorithm
+    colnames(currentdata)[num] <- "CHROM"
+    currentdata  <<- currentdata 
+  } else {
+    cat("Invalid input. Please enter a valid number between 1 and ", length(columns_list), ".\n")
+    what_column_chrom()
+  }
+  }
+}
+
+what_column_gene <- function() {
+  if (!("gene_symbol" %in% names(currentdata))){
+  columns_list <- colnames(currentdata)
+  # Print the column list (of the first sheet you loaded) and corresponding numbers
+  cat("What column is your gene column in your data?", "\n")
+  for (j in 1:length(columns_list)) {
+    cat(j, " - ", columns_list[j], "\n")
+  }
+  KeepSheet <- list()
+  input <- readline("Enter a number: ")
+  # Convert the input to numeric
+  num <- as.numeric(input)
+  number <<- num
+  # Check if the input is a valid number and within the valid range
+  if (!is.na(num) && num >= 1 && num <= length(columns_list)) {
+    KeepSheet <- c(KeepSheet, columns_list[num])
+    oldname <<- as.character(columns_list[num])
+    invisible(assign("KeepSheet", KeepSheet, envir = .GlobalEnv))
+    cat("This is the column we're using:", unlist(KeepSheet), "\n")
+    # We're gonna change the chosen column name to "gene_match" so any and all sheets can be used in a simpler
+    # Matching algorithm
+    colnames(currentdata)[num] <- "gene_symbol"
+    currentdata  <<- currentdata 
+  } else {
+    cat("Invalid input. Please enter a valid number between 1 and ", length(columns_list), ".\n")
+    what_column_gene()
+  }
+  }
+  else {
+    cat("Gene column detected as 'gene_symbol'.\n")
+  }
+}
+
+genicfilter <- function(){
+if ("gene_symbol" %in% names(currentdata)){
+  currentdata_genic <- dplyr::filter(currentdata,numberOfGeneSymbols >=1)
+  #GenicRow <<- nrow(currentdata_genic)
+  #GenicText <<- "Genic"
+  currentdata_genic <<- currentdata_genic %>%
+    separate_rows(gene_symbol, sep = ",")
+  currentdata_genic <<- currentdata_genic %>%
+    separate_rows(gene_symbol, sep = "\\|")
+  currentdata_genic$gene_symbol <- trimws(currentdata_genic$gene_symbol, which = "left")
+  #GenesInvovlvedRow <<-  nrow(currentdata_genic)
+  #GenesInvovlvedText <<- "Total # Genes Involved"
+ 
+ count_removed_and_remaining_rows(currentdata,currentdata_genic)
+  currentdata_genic$entrez_id <- mapIds(org.Hs.eg.db, keys = currentdata_genic$gene_symbol, column = "ENTREZID", keytype = "SYMBOL", multiVals = lastlast)
+  currentdata_genic$gene_name <- mapIds(org.Hs.eg.db, keys = currentdata_genic$gene_symbol, column = "GENENAME", keytype = "SYMBOL", multiVals = lastlast)
+  currentdata_genic$gene_type <- mapIds(org.Hs.eg.db, keys = currentdata_genic$gene_symbol, column = "GENETYPE", keytype = "SYMBOL", multiVals = lastlast)
+  currentdata_genic$OMIM_Id <- mapIds(org.Hs.eg.db, keys = currentdata_genic$gene_symbol, column = "OMIM", keytype = "SYMBOL", multiVals = lastlast)
+  currentdata_genic$CGD_Condition <- NA
+  currentdata_genic$CGD_Inheritance <- NA
+  currentdata_genic$CGD_Manifestation <-  NA
+  currentdata_genic$CGD_Allelic_Conditions <- NA
+  for(i in 1:nrow(currentdata_genic)){
+    enterez <- currentdata_genic$entrez_id[[i]]
+    row_index_CGD <- which(CGD$`ENTREZ GENE ID` == enterez)
+    if(length(row_index_CGD) > 0){
+      currentdata_genic$CGD_Condition[i] <<- CGD$CONDITION[row_index_CGD]
+      currentdata_genic$CGD_Inheritance[i] <<-  CGD$INHERITANCE[row_index_CGD]
+      currentdata_genic$CGD_Manifestation[i] <<-  CGD$`MANIFESTATION CATEGORIES`[row_index_CGD]
+      currentdata_genic$CGD_Allelic_Conditions[i] <<- CGD$`ALLELIC CONDITIONS`[row_index_CGD]
+    } else {
+      currentdata_genic$CGD_Condition[i] <<- NA
+      currentdata_genic$CGD_Inheritance[i] <<- NA
+      currentdata_genic$CGD_Manifestation[i] <<-  NA
+      currentdata_genic$CGD_Allelic_Conditions[i] <<- NA
+    }
+  }
+}
+  else {
+    print("gene_symbol column not found")
+    what_column_gene()
+    genicfilter()
+  }
+}
+
+what_column_start <- function() {
+  columns_list <- colnames(currentdata)
+  # Print the column list (of the first sheet you loaded) and corresponding numbers
+  cat("What column is the start column in your data?", "\n")
+  for (j in 1:length(columns_list)) {
+    cat(j, " - ", columns_list[j], "\n")
+  }
+  KeepSheet <- list()
+  input <- readline("Enter a number: ")
+  # Convert the input to numeric
+  num <- as.numeric(input)
+  number <<- num
+  # Check if the input is a valid number and within the valid range
+  if (!is.na(num) && num >= 1 && num <= length(columns_list)) {
+    KeepSheet <- c(KeepSheet, columns_list[num])
+    oldname <<- as.character(columns_list[num])
+    invisible(assign("KeepSheet", KeepSheet, envir = .GlobalEnv))
+    cat("This is the column we're using:", unlist(KeepSheet), "\n")
+    # Matching algorithm
+    colnames(currentdata)[num] <- "SV_Start"
+    currentdata  <<- currentdata 
+  } else {
+    cat("Invalid input. Please enter a valid number between 1 and ", length(columns_list), ".\n")
+    what_column_start()
+  }
+}
+
+what_column_stop <- function() {
+  columns_list <- colnames(currentdata)
+  # Print the column list (of the first sheet you loaded) and corresponding numbers
+  cat("What column is the stop column in your data?", "\n")
+  for (j in 1:length(columns_list)) {
+    cat(j, " - ", columns_list[j], "\n")
+  }
+  KeepSheet <- list()
+  input <- readline("Enter a number: ")
+  # Convert the input to numeric
+  num <- as.numeric(input)
+  number <<- num
+  # Check if the input is a valid number and within the valid range
+  if (!is.na(num) && num >= 1 && num <= length(columns_list)) {
+    KeepSheet <- c(KeepSheet, columns_list[num])
+    oldname <<- as.character(columns_list[num])
+    invisible(assign("KeepSheet", KeepSheet, envir = .GlobalEnv))
+    cat("This is the column we're using:", unlist(KeepSheet), "\n")
+    # We're gonna change the chosen column name to "gene_match" so any and all sheets can be used in a simpler
+    # Matching algorithm
+    colnames(currentdata)[num] <- "SV_Stop"
+    currentdata  <<- currentdata 
+  } else {
+    cat("Invalid input. Please enter a valid number between 1 and ", length(columns_list), ".\n")
+    what_column_stop()
+  }
+}
+
+prepfiles <- function(){
+RefSeqURL <- "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/ncbiRefSeq.txt.gz"
+directory <- getwd()
+RefSeqName <- paste0(directory, "/ncbiRefSeq.txt.gz")
+download.file(RefSeqURL,RefSeqName)
+RefSeq <- read.table(gzfile(RefSeqName))
+colnames(RefSeq)[c(1:13)] <- c("bin", "name", "chrom", "strand", "txstart", "txEnd", "cdsStart", "cdsEnd", "ExonCount", "exonStarts", "exonEnds", "score", "gene_symbol", "cdsStartStat", "cdsEndStat", "ExonFrames")
+
+# Calculate how far each gene match is from the actual variant
+MANEURL <- "https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/release_1.4/MANE.GRCh38.v1.4.summary.txt.gz"
+directory <- getwd()
+MANEName <- paste0(directory, "/MANE.GRCh38.v1.4.summary.txt.gz")
+download.file(MANEURL,MANEName)
+MANE <- read.delim(gzfile(MANEName))
+MANE$GRCh38_chr <- sub("NC_0{3,4}","",MANE$GRCh38_chr)
+MANE$GRCh38_chr <- sub("^0+", "",MANE$GRCh38_chr)
+MANE$GRCh38_chr <- sub("\\..*", "",MANE$GRCh38_chr)
+
+mane_ref_name <- merge(RefSeq, MANE, by.x = "gene_symbol", by.y = "symbol")
+mane_ref_name_filt <- mane_ref_name[!grepl("alt", mane_ref_name$chrom), ]
+mane_ref_name_filt <- mane_ref_name_filt[!grepl("fix", mane_ref_name_filt$chrom), ]
+
+ref_name_filt_unique_filtered <<- mane_ref_name_filt %>%
+  group_by(gene_symbol) %>%  
+  slice_max(ExonCount, with_ties = FALSE) %>%  # Keep only the highest ExonCount per gene_symbol
+  ungroup()
+merged_data <<- merge(currentdata_genic, ref_name_filt_unique_filtered, by = "gene_symbol")
+}
+
+overlapping_calculation <- function(){
+ if(!("SV_Start" %in% colnames(merged_data))){
+    what_column_start()
+  }
+merged_data$SV_Start <- as.numeric(merged_data$SV_Start)
+  if(!("SV_Stop" %in% colnames(merged_data))){
+    what_column_stop()
+  }
+merged_data$SV_Start <- as.numeric(merged_data$SV_Start)
+merged_data$SV_Stop <- as.numeric(merged_data$SV_Stop)
+merged_data$cdsStart <- as.numeric(merged_data$cdsStart)
+merged_data$cdsEnd <- as.numeric(merged_data$cdsEnd)
+noinfoongene <- subset(merged_data, is.na(exonStarts))
+merged_data <- subset(merged_data, !is.na(exonStarts))
+# Function to find overlaps between SVs and coding regions
+find_sv_coding_overlaps <- function(data) {
+  data <- data %>%
+    # Ensure SV_Start is smaller than SV_Stop
+    mutate(
+      SV_Start = pmin(as.numeric(SV_Start), as.numeric(SV_Stop)),
+      SV_Stop = pmax(as.numeric(SV_Start), as.numeric(SV_Stop))
+    ) %>%
+    mutate(
+      exonStarts_list = strsplit(as.character(exonStarts), ","),
+      exonEnds_list = strsplit(as.character(exonEnds), ",")
+    )
+  
+  results <<- data %>% rowwise() %>%
+    mutate(
+      overlap_details = list({
+        # Extract exon and CDS details
+        exon_starts <- as.numeric(unlist(exonStarts_list))
+        exon_ends <- as.numeric(unlist(exonEnds_list))
+        cds_start <- as.numeric(cdsStart)
+        cds_end <- as.numeric(cdsEnd)
+        sv_start <- as.numeric(SV_Start)
+        sv_stop <- as.numeric(SV_Stop)
+        
+        # Define coding regions (overlap of exons with CDS boundaries)
+        coding_regions <- lapply(seq_along(exon_starts), function(i) {
+          c(max(cds_start, exon_starts[i]), min(cds_end, exon_ends[i]))
+        })
+        
+        # Check SV overlaps with coding regions
+        overlapping_exons <- 0
+        overlap_ranges <- list()
+        
+        for (region in coding_regions) {
+          overlap_start <- max(sv_start, region[1])
+          overlap_end <- min(sv_stop, region[2])
+          
+          if (overlap_start <= overlap_end) {
+            overlapping_exons <- overlapping_exons + 1
+            overlap_ranges[[length(overlap_ranges) + 1]] <- c(overlap_start, overlap_end)
+          }
+        }
+        
+        list(
+          overlapping_exons = overlapping_exons,
+          overlap_ranges = overlap_ranges
+        )
+      })
+    )
+}
+
+
+
+# Run the overlap check
+overlap_results <<- find_sv_coding_overlaps(merged_data)
+
+overlap_results <<- overlap_results %>%
+  dplyr::mutate(overlapping_exons = overlap_details$overlapping_exons)%>%
+  dplyr::select(-V14, -V15, -V16, -exonEnds_list, -exonStarts_list)
+}
+
+cleanup_files <- function(){
+columns_to_remove <- c("bin", "name", "chrom", "strand", "txstart", "txEnd", 
+                       "cdsStart", "cdsEnd", "ExonCount", "exonStarts", 
+                       "exonEnds", "score", "overlapping_exons")
+
+# Get current column names
+current_columns <- colnames(variants_with_exon_overlaps_easy)
+
+# Find columns to remove including those with .x and .y suffixes
+columns_to_remove_extended <- c()
+for (col in columns_to_remove) {
+  # Add the base column name
+  columns_to_remove_extended <- c(columns_to_remove_extended, col)
+  
+  # Add versions with .x and .y suffixes
+  columns_to_remove_extended <- c(columns_to_remove_extended, 
+                                  paste0(col, ".x"), 
+                                  paste0(col, ".y"))
+}
+
+# Find which columns actually exist in the dataframe
+columns_to_remove_that_exist <-  base::intersect(columns_to_remove_extended, current_columns)
+
+variants_with_exon_overlaps_easy <<- variants_with_exon_overlaps_easy %>%
+  dplyr::select(-any_of(columns_to_remove_extended))
+
+}
+
+Genic_andCDS <-  function() {
+  genicfilter()
+  prepfiles()
+  overlapping_calculation()
+  cleanup_files()
+}
+
+SV_Filtering <- function(){
+  if ("currentdata_MANTA" %in% ls(envir = .GlobalEnv)) {
+     currentdata <<- currentdata_MANTA
+     Genic_andCDS()
+     
+     if ("panel" %in% ls(envir = .GlobalEnv)) {
+  print ("Panel found.")
+  nrowpanel <<- nrow(panel)
+  currentdata_panel <<- currentdata_genic_MANTA[currentdata_genic_MANTA$gene_symbol %in% panel[1:nrowpanel,],]
+ panel_row <<-  nrow(currentdata_panel)
+  panel_text <<- "Variants in Panel Genes"
+FilterStep_MANTA$Step <<- c(FilterStep_MANTA$Step,panel_text)
+FilterStep_MANTA$Count <<- c(FilterStep_MANTA$Count,panel_row)
+}
+
+ FilterStep_MANTA <- data.frame(
+  Step = FilterStep_MANTA$Step,
+  Count = FilterStep_MANTA$Count,
+  stringsAsFactors = FALSE
+)  
+wb <<- createWorkbook() 
+sheet_name_1 <<- as.character("Filtered_MANTA")
+  sheet_name_2 <<- as.character("Genic_MANTA")
+  sheet_name_panel <<- as.character("Panel_MANTA")
+  sheet_name_3 <<- as.character("MANTA_Filter_History")
+  sheet_name_4 <<- as.character("Panel Used")
+  
+  addWorksheet(wb, sheet_name_1)
+  addWorksheet(wb, sheet_name_2)
+  addWorksheet(wb, sheet_name_panel)
+  addWorksheet(wb, sheet_name_3)
+  addWorksheet(wb, sheet_name_4)
+  
+  final_file <- paste0(Dnumber, "_panel_filtered_MANTAs.xlsx")
+  currentdata_genic_MANTA <- currentdata_genic_MANTA %>% mutate(across(where(is.list), as.character))
+  writeData(wb, sheet = sheet_name_1, x = currentdata_MANTA, na.string = "NA")
+  writeData(wb, sheet = sheet_name_2, x = currentdata_genic_MANTA, na.string = "NA")
+  writeData(wb, sheet = sheet_name_panel, x = currentdata_panel)
+  writeData(wb, sheet = sheet_name_3, x = FilterStep_MANTA, na.string = "NA")
+  writeData(wb, sheet = sheet_name_4, x = panel)
+# Check if the final file name already exists 
+  if (file.exists(final_file)) {
+    counter <- 1   
+    dup_file <- paste0(Dnumber, "_", counter, "_panel_filtered_MANTA.xlsx")     
+    while (file.exists(dup_file)) {     
+      counter <- counter + 1     
+      dup_file <- paste0(Dnumber, "_", counter, "_panel_filtered_MANTA.xlsx")
+    }      
+    saveWorkbook(wb, file = dup_file)   
+    cat(paste0("File saved as '", dup_file, "'.\n")) } 
+  else {   
+    saveWorkbook(wb, file = final_file)   
+    cat("File saved successfully!\n")
+  }
+}
+  if ("currentdata_CNV" %in% ls(envir = .GlobalEnv)) {
+     currentdata <<- currentdata_CNV
+     Genic_andCDS()
+currentdata_genic_CNV <<- currentdata_genic
+
+if ("panel" %in% ls(envir = .GlobalEnv)) {
+  print ("Panel found.")
+  nrowpanel <- nrow(panel)
+  currentdata_panel_CNV <<- currentdata_genic_CNV[currentdata_genic_CNV$gene_symbol %in% panel[1:nrowpanel,],]
+ panel_row <<-  nrow(currentdata_panel_CNV)
+panel_text <<- "Variants in Panel Genes"
+FilterStep_CNVnator$Step <<- c(FilterStep_CNVnator$Step,panel_text)
+FilterStep_CNVnator$Count <<- c(FilterStep_CNVnator$Count,panel_row) 
+}
+
+FilterStep_CNVnator <- data.frame(
+  Step = FilterStep_CNVnator$Step,
+  Count = FilterStep_CNVnator$Count,
+  stringsAsFactors = FALSE
+)  
+wb <<- createWorkbook()
+sheet_name_1 <<- as.character("Filtered_CNV")
+sheet_name_2 <<- as.character("Genic_CNV")
+sheet_name_panel <<- as.character("Panel_CNV")
+sheet_name_3 <<- as.character("CNV_Filter_History")
+sheet_name_4 <<- as.character("Panel Used")
+  
+addWorksheet(wb, sheet_name_1)
+addWorksheet(wb, sheet_name_2)
+addWorksheet(wb, sheet_name_panel)
+addWorksheet(wb, sheet_name_3)
+addWorksheet(wb, sheet_name_4)
+    
+  final_file <- paste0(Dnumber, "_panel_filtered_CNVnator.xlsx")
+  writeData(wb, sheet = sheet_name_1, x = currentdata_CNV)
+  currentdata_genic_CNV <- currentdata_genic_CNV %>% mutate(across(where(is.list), as.character))
+  writeData(wb, sheet = sheet_name_2, x = currentdata_genic_CNV, na.string = "NA")
+  writeData(wb, sheet = sheet_name_panel, x = currentdata_panel_CNV)
+  writeData(wb, sheet = sheet_name_3, x = FilterStep_CNVnator)
+  writeData(wb, sheet = sheet_name_4, x = panel)
+
+  
+# Check if the final file name already exists 
+  if (file.exists(final_file)) {
+    counter <- 1   
+    dup_file <- paste0(Dnumber, "_", counter, "_panel_filtered_CNVnator.xlsx")     
+    while (file.exists(dup_file)) {     
+      counter <- counter + 1     
+      dup_file <- paste0(Dnumber, "_", counter, "_panel_filtered_CNVnator.xlsx")   
+    }      
+    saveWorkbook(wb, file = dup_file)   
+    cat(paste0("File saved as '", dup_file, "'.\n")) 
+    } else {   
+    saveWorkbook(wb, file = final_file)   
+    cat("File saved successfully!\n")}
+     
+   
+
+
+  }
+}
+filter_choice <- function(){
+  printline <- cat("What will you be filtering today? \n[1] MANTA \n[2] CNVnator \n[3] Both MANTA & CNVnator")
+  choice <- readline(prompt = printline)
+  choice <- as.numeric(choice)
+  
+  FilterStep_MANTA <<- list(
+  Step = character(0),  # Empty character vector for Step names
+  Count = numeric(0)    # Empty numeric vector for Count values
+)
+  FilterStep_CNVnator <<- list(
+  Step = character(0),  # Empty character vector for Step names
+  Count = numeric(0)    # Empty numeric vector for Count values
+)
+  if (choice == 1){
+    setupMANTA()
+    MANTA_Filtering()
+    SV_Filtering()
+    
+  } else if (choice == 2) {
+    setupCNVnator()
+    CNV_Filtering()
+    SV_Filtering()
+  } else if (choice == 3) {
+    setupMANTA()
+    MANTA_Filtering()
+    setupCNVnator() 
+    CNV_Filtering()
+    SV_Filtering()
+  } else {
+    cat("Please pick from the numbers given! Circling back...\n")
+    filter_choice()
+  }
+}
+
+
+mainscript <- function(){
+  gc()
+  setup()
+  filter_choice()
+
+}
+
+mainscript()
+
+```
