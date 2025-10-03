@@ -1,10 +1,10 @@
 # How to Use the SNV and SV Pipelines
 
-This repository provides pipelines for analyzing **single nucleotide variants (SNVs)**, **structural variants (SVs)**, and applying **inheritance filtering**. These tools are designed to facilitate variant discovery in inherited retinal dystrophies (IRDs) and other rare diseases.  
+This walkthrough further explains the codes using for analyzing **single nucleotide variants (SNVs)**, **structural variants (SVs)**, and applying **inheritance filtering**. These tools are designed to facilitate variant discovery in inherited retinal dystrophies (IRDs) and other rare diseases. Included in this folder are 2 sample input files; 'Sample_SNV_Input' and 'Sample_SV_Input_MANTA', which are both hg38 variant files and can be filtered with hg38 filtering code.
 
 ---
 
-## 1. SNV Pipeline  
+## 1. SNV Pipeline 
 
 The SNV pipeline filters, scores, and ranks small variants (SNVs and indels).  
 
